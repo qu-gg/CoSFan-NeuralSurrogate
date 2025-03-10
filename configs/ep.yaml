@@ -1,0 +1,32 @@
+defaults:
+  - _self_
+  - model: feedforward-mask
+  - dataset: ep
+  - training: continual
+  - memory: naive
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+
+# PyTorch-Lightning hardware params
+accelerator: gpu
+devices: [1]
+num_workers: 0
+
+# Random seed of the run
+seed: 1111
+
+# Whether to set a specific experiment tag to differentiate or not
+exptag: ""
+
+gradual_percent: 1.0
+
+# Experiment folder naming
+exptype: ${model.model}_${dataset.dataset}_${training.task_setting}_${memory.memory_name}_${seed}_${gradual_percent}
+model_path: ""
+checkpt: ""
+
+# Whether to save reconstructions to disk
+save_files: true

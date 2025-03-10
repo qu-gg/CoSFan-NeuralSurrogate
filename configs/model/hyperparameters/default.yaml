@@ -1,0 +1,26 @@
+# What metrics to evaluate on
+metrics:
+  - mse
+  - tcc
+  - scc
+
+# Batch size
+batch_size: 10
+domain_size: 5
+domain_varying: false
+
+# Forcing test/val to .eval()
+inference_mode: true
+
+# Learning rate and cosine annealing scheduler
+gradient_clip: 5
+learning_rate: 1e-3
+
+# KL loss betas
+betas:
+  um: 3
+  z0: 1e-2
+  kl: 1e-3
+
+# How many steps are given for inference and to generate
+z_amort: 5

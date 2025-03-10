@@ -1,0 +1,4 @@
+memory_name: task_relational
+memory_samples: 4500
+known_boundary: true
+boundary_detection: true

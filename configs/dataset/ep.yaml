@@ -1,0 +1,14 @@
+dataset: synthetic 
+dataset_ver: scar_
+
+task_ids: [0, 1, 2, 3, 5, 7, 13, 15, 16]
+data_names: ["AW", "DC", "EC"]
+signal_type: "egm"
+seq_len: 101
+
+graph_method: "bipartite"
+load_torso: 0
+load_physics: 0 
+signal_source: "heart"
+omit: 5
+window: 60
