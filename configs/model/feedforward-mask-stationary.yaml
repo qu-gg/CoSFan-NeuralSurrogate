@@ -1,0 +1,7 @@
+model: feedforwardmask-stationary
+stochastic: true
+meta: true
+
+defaults:
+  - layers: default
+  - hyperparameters: default

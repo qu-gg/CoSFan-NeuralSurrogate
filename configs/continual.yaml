@@ -1,9 +1,9 @@
 defaults:
   - _self_
   - model: feedforward-mask
-  - dataset: ep
+  - dataset: continual
   - training: continual
-  - memory: naive
+  - memory: exact-replay
 
 hydra:
   output_subdir: null
@@ -12,7 +12,7 @@ hydra:
 
 # PyTorch-Lightning hardware params
 accelerator: gpu
-devices: [1]
+devices: [0]
 num_workers: 0
 
 # Random seed of the run

@@ -34,6 +34,10 @@ def get_model(name):
     if name == "feedforwardmask":
         from models.FeedForwardMaskIn import FeedForward
         return FeedForward
+    
+    if name == "feedforwardmask-stationary":
+        from models.FeedForwardMaskInStationary import FeedForward
+        return FeedForward
 
     # Given no correct model type, raise error
     raise NotImplementedError("Model type {} not implemented.".format(name))

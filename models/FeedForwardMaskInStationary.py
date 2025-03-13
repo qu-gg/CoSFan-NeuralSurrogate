@@ -3,7 +3,7 @@ import functorch
 import torch.nn as nn
 
 from models.CommonComponents import RnnEncoder, Aggregator, get_params, one_hot_label, SpatialEncoder, SpatialDecoder
-from models.CommonTraining import LatentMetaDynamicsModel
+from models.CommonTrainingStationary import LatentMetaDynamicsModel
 
 
 

@@ -33,18 +33,8 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         # Losses
         self.reconstruction_loss = nn.MSELoss(reduction='none')
 
-        # Update modulator
-        self.update_modulator = 1
-
-        # Memory-based component
-        self.memory = get_memory(args.memory_name)(args) if args.memory_name != "naive" else None
-
         # General trackers
         self.n_updates = 0
-        self.task_steps = 0
-        self.task_counter = -1
-        self.task_boundary = False
-        self.old_task = False
 
         # Accumulation of outputs over the logging interval
         self.outputs = list()
@@ -70,36 +60,16 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
 
     def configure_optimizers(self):
         """ Optimizer and LR scheduler """
-        # Simple catch for first time setting up the optimizer
-        if self.task_counter == -1:
-            self.task_counter += 1
-
         # Define optimizer
         optim = torch.optim.AdamW(list(self.parameters()), lr=self.args.learning_rate)
 
         # Define step optimizer
-        optim_scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=500, gamma=0.75)
+        optim_scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=1000, gamma=0.75)
         scheduler = {
             'scheduler': optim_scheduler,
             'interval': 'step'
         }
         return [optim], [scheduler]
-
-    def reset_state(self, signals=None):
-        """ Handles resetting the optimizer/LR scheduler when a new task is detected by the model """
-        # Assign a new optimizer and scheduler
-        self.trainer.strategy.setup_optimizers(self.trainer)
-
-        # Perform the memory update and update the memory's logger
-        if self.memory is not None:
-            self.memory.task_update()
-            self.memory.update_logger(self.logger)
-
-        # Reset the task boundary flag
-        self.task_steps = 0
-        self.task_counter += 1
-        self.task_boundary = False
-        self.outputs = list()
 
     def on_train_start(self):
         """ Boilerplate experiment logging setup pre-training """
@@ -114,116 +84,39 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         """ Handles processing a batch and getting model predictions """
         # Get batch
         x, x_domain, y, y_domain, names, labels = batch 
-        # print(f"X pre: {x.shape} | Domain pre: {x_domain.shape}| Name pre: {names.shape}")
-       
+        
         # Changeable k_shot
         if train is True and self.args.domain_varying is True:
             k_shot = np.random.randint(1, x_domain.shape[1])
             x_domain = x_domain[:, :k_shot]
             y_domain = y_domain[:, :k_shot]
 
-        # Turn into a list of individual tensors
-        x_list = [xi for xi in x]
-        x_domain_list = [xi for xi in x_domain]
-        y_list = [yi for yi in y]
-        y_domain_list = [yi for yi in y_domain]
-        
-        # Get memory batch, added only for training
-        if self.memory is not None and train is True and self.task_counter > 0:
-            memory_x, memory_x_domains, memory_y, memory_y_domains, memory_names = self.memory.get_batch()
+        print(f"X pre: {x.shape} | Domain pre: {x_domain.shape}| Name pre: {names.shape} {names[0]}")
+
+        # Get predictions
+        preds, zt = self(x, x_domain, y, y_domain, int(names[0]))
+
+        # Get the likelihood
+        nll_raw = self.reconstruction_loss(preds, x)
+        nll_0 = nll_raw[:, :, 0].sum()
+        nll_r = nll_raw[:, :, 1:].sum() / (x.shape[-1] - 1)
+        likelihood = x.shape[-1] * (nll_0 * 0.1 + nll_r)
             
-            # Turn into a list of individual tensors
-            x_list = [xi for xi in x[:max(self.args.batch_size // 2, 2)]] + memory_x
-            x_domain_list = [xi for xi in x_domain[:max(self.args.batch_size // 2, 2)]] + memory_x_domains
-            y_list = [yi for yi in y[:max(self.args.batch_size // 2, 2)]] + memory_y
-            y_domain_list = [yi for yi in y_domain[:max(self.args.batch_size // 2, 2)]] + memory_y_domains
-            names = torch.vstack((names[:max(self.args.batch_size // 2, 2)], memory_names))
-            # print(f"Name: {names}")
-
-        # Get subset of x and xD based on names
-        likelihood_total, model_specific_loss_total = None, None
-        x_stack, x_domain_stack, preds_stack, zt_stack = [], [], [], []
-        for name in torch.unique(names):
-            indices = torch.where(names == name)[0]
-            # print(torch.unique(names), name, indices, name)
-
-            sub_x = torch.stack([x_list[i] for i in indices])
-            sub_xD = torch.stack([x_domain_list[i] for i in indices])
-            sub_y = torch.stack([y_list[i] for i in indices])
-            sub_yD = torch.stack([y_domain_list[i] for i in indices])
-            # print(sub_x.shape, sub_xD.shape, sub_y.shape, sub_yD.shape)
-
-            # Reconstruct nodes based on subset size
-            for data_idx, data_name in enumerate(self.args.data_names):
-                self.construct_nodes(data_idx, data_name, 'data/ep/', sub_x.shape[0], self.args.devices[0], self.args.load_torso, self.args.load_physics, self.args.graph_method)
-
-            # Get predictions
-            preds, zt = self(sub_x, sub_xD, sub_y, sub_yD, int(name))
-            # print(preds.shape, zt.shape)
-
-            # Reconstruction loss for the sequence and z0
-            # likelihoods = self.reconstruction_loss(preds, sub_x)
-            # likelihood = likelihoods.sum() / (sub_x.shape[-1] - 1)
-            
-            nll_raw = self.reconstruction_loss(preds, sub_x)
-            nll_0 = nll_raw[:, :, 0].sum()
-            nll_r = nll_raw[:, :, 1:].sum() / (sub_x.shape[-1] - 1)
-            likelihood = sub_x.shape[-1] * (nll_0 * 0.1 + nll_r)
-            
-            # Get the loss terms from the specific latent dynamics loss
-            model_specific_loss = self.model_specific_loss(sub_x, sub_xD, preds)
-        
-            if likelihood_total is None:
-                likelihood_total = likelihood
-                model_specific_loss_total = model_specific_loss
-            else:
-                likelihood_total += likelihood
-                model_specific_loss_total += model_specific_loss
-        
-            x_stack.append(sub_x)
-            x_domain_stack.append(sub_xD)
-            preds_stack.append(preds)
-            zt_stack.append(zt)
-        
-        # Average loss
-        likelihood_total /= x.shape[0]
-
-        # Pad to longest vertice length
-        max_x_vertice = max([sub_x.shape[1] for sub_x in x_stack])
-        # max_z_vertice = max([sub_z.shape[1] for sub_z in zt_stack])
-        # print(f"Pre pad: {[sub_x.shape[1] for sub_x in x_stack]} {[sub_z.shape[1] for sub_z in zt_stack]}")
-        
-        for idx, (xq, dq, pq, zq) in enumerate(zip(x_stack, x_domain_stack, preds_stack, zt_stack)):
-            # print(max_x_vertice - xq.shape[1])
-            # print(max_z_vertice - zq.shape[1])
-            if max_x_vertice - xq.shape[1] > 0:
-                x_stack[idx] = torch.nn.functional.pad(xq, pad=[0, 0, 0, max_x_vertice - xq.shape[1], 0, 0], mode='constant', value=0)       
-                x_domain_stack[idx] = torch.nn.functional.pad(dq, pad=[0, 0, 0, max_x_vertice - xq.shape[1], 0, 0, 0, 0], mode='constant', value=0)
-                preds_stack[idx] = torch.nn.functional.pad(pq, pad=[0, 0, 0, max_x_vertice - xq.shape[1], 0, 0], mode='constant', value=0)
-            
-            # if max_z_vertice - zq.shape[1] > 0:
-                # zt_stack[idx] = torch.nn.functional.pad(zq, pad=[0, 0, 0, 0, 0, max_z_vertice - zq.shape[1], 0, 0], mode='constant', value=0)
-
-        # print(f"Post pad: {[sub_x.shape[1] for sub_x in x_stack]} {[sub_z.shape[1] for sub_z in zt_stack]}")
-
-        # Stack out
-        x_stack = torch.vstack(x_stack)
-        x_domain_stack = torch.vstack(x_domain_stack)
-        preds_stack = torch.vstack(preds_stack)
-        # zt_stack = torch.vstack(zt_stack)
-        return x_stack, preds_stack, zt_stack, names, likelihood_total, model_specific_loss_total
+        # Get the loss terms from the specific latent dynamics loss
+        model_specific_loss = self.model_specific_loss(x, x_domain, preds)
+        return x, preds, zt, names, likelihood, model_specific_loss
 
     def get_metrics(self, outputs, setting):
         """ Takes the dictionary of saved batch metrics, stacks them, and gets outputs to log in the Tensorboard """
         # Pad to longest vertice length
-        # print(f'Pre pad: {[out["signals"].shape[1] for out in outputs]}')
+        print(f'Pre pad: {[out["signals"].shape[1] for out in outputs]}')
         max_x_vertice = max([out["signals"].shape[1] for out in outputs])
         for idx, out in enumerate(outputs):
             if max_x_vertice - outputs[idx]["signals"].shape[1] > 0:
                 outputs[idx]["signals"] = torch.nn.functional.pad(outputs[idx]["signals"], pad=[0, 0, 0, max_x_vertice - outputs[idx]["signals"].shape[1], 0, 0], mode='constant', value=0)       
                 outputs[idx]["preds"] = torch.nn.functional.pad(outputs[idx]["signals"], pad=[0, 0, 0, max_x_vertice - outputs[idx]["signals"].shape[1], 0, 0], mode='constant', value=0)       
-        # print(f'Post pad: {[out["signals"].shape[1] for out in outputs]}')
-
+        print(f'Post pad: {[out["signals"].shape[1] for out in outputs]}')
+        
         # Convert outputs to Tensors and then Numpy arrays
         signals = torch.vstack([out["signals"] for out in outputs]).cpu().numpy()
         preds = torch.vstack([out["preds"] for out in outputs]).cpu().numpy()
@@ -236,7 +129,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         return out_metrics
 
     def training_step(self, batch, batch_idx):
-        """ Training step, getting loss and returning it to optimizer """
+        """ Training step, getting loss and returning it to optimizer """        
         # Get outputs and calculate losses
         signals, preds, _, names, likelihood, model_specific_loss  = self.get_step_outputs(batch)
 
@@ -246,19 +139,16 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         # Build the full loss
         self.log_dict({"likelihood": likelihood}, prog_bar=True)
         
+        # Sample new task for next batch
+        self.trainer.train_dataloader.dataset.datasets.sample_new_task()
+        
         # Return outputs as dict
         self.n_updates += 1
-        self.task_steps += 1
         self.outputs.append({"preds": preds.detach().cpu(), "signals": signals.detach().cpu(), "names": names.detach().cpu()})
         return {"loss": loss}
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         """ Every N  Steps, perform the SOM optimization """
-        # Check if we're done updating the model in this task.
-        if self.memory is not None and self.task_steps == self.args.num_updates_steps and self.old_task is False:
-            print("\n=> Doing memory update and switching to fast-evaluation...")
-            self.memory.epoch_update(self.logger, self.task_counter, self)
-
         # Log metrics over saved batches on the specified interval
         if batch_idx % self.args.log_interval == 0 and batch_idx != 0:
             metrics = self.get_metrics(self.outputs, setting='train')
@@ -293,6 +183,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         """ PyTorch-Lightning testing step """
         # Get model outputs from batch
         signals, preds, _, _, _, _ = self.get_step_outputs(batch, train=False)
+        print(signals.shape, preds.shape)
 
         # Return output dictionary
         out = dict()

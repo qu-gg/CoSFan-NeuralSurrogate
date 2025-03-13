@@ -15,7 +15,7 @@ import matplotlib.lines as mlines
 import pytorch_lightning.loggers as pl_loggers
 
 from omegaconf import DictConfig
-from utils.dataloader_ep import EPDataModule
+from utils.dataloader_ep import ContinualEPDataModule
 from utils.utils import get_model, flatten_cfg
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
@@ -93,7 +93,7 @@ def plot_continual_metrics(cfg, logger):
     json.dump(task_performances, fp=open(f"{logger.log_dir}/temporal_metrics.json", 'w'), indent=4)
 
 
-@hydra.main(version_base="1.3", config_path="configs", config_name="ep")
+@hydra.main(version_base="1.3", config_path="configs", config_name="continual")
 def main(cfg: DictConfig):
     # Set a consistent seed over the full set for consistent analysis
     pytorch_lightning.seed_everything(cfg.seed, workers=True)
@@ -135,7 +135,7 @@ def main(cfg: DictConfig):
     # Build datasets based on tasks
     datamodules = dict()
     for task_id in cfg.task_ids:
-        datamodules[task_id] = EPDataModule(cfg, [task_id])
+        datamodules[task_id] = ContinualEPDataModule(cfg, [task_id])
         print(f"=> Task {task_id}")
         print(f"=> Dataset 'train' xs shape: {datamodules[task_id].train_dataloader().dataset.xs.shape}")
         # print(f"=> Dataset 'train' xs shape: {datamodules[task_id].val_dataloader().dataset.xs.shape}")
@@ -159,8 +159,7 @@ def main(cfg: DictConfig):
         gradient_clip_val=cfg.gradient_clip,
         # val_check_interval=cfg.val_log_interval,
         val_check_interval=None,
-        num_sanity_val_steps=0,
-        inference_mode=cfg.inference_mode
+        num_sanity_val_steps=0
     )
     trainer.callbacks.append(None)
 
