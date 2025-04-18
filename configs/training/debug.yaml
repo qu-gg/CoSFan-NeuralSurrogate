@@ -2,10 +2,10 @@
 task_setting: continual
 
 # Number of steps to update the model on in a task
-num_updates_steps: 5
+num_updates_steps: 20
 
 # Number of steps per task
-num_task_steps: 6
+num_task_steps: 21
 
 # How often to log training and validation metrics
 log_interval: 5

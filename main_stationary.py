@@ -92,12 +92,12 @@ def main(cfg: DictConfig):
         model.construct_nodes(data_idx, data_name, 'data/ep/', 1, cfg.devices[0], cfg.load_torso, cfg.load_physics, cfg.graph_method)
 
     # Test on the training set
-    for task_id in cfg.task_ids:
+    for task_id in cfg.test_task_ids:
         cfg.split = f"{task_id}_train"
         trainer.test(model, dataset.test_dataloader(task_id=task_id, mode="train"), ckpt_path=f"{logger.log_dir}/checkpoints/last.ckpt")
 
     # Test on the training set
-    for task_id in cfg.task_ids:
+    for task_id in cfg.test_task_ids:
         cfg.split = str(task_id)
         trainer.test(model, dataset.test_dataloader(task_id=task_id, mode="val"), ckpt_path=f"{logger.log_dir}/checkpoints/last.ckpt")
 

@@ -1,6 +1,8 @@
 # What metrics to evaluate on
 train_metrics:
   - mse
+  - tcc
+  - scc
 
 test_metrics:
   - mse
@@ -13,7 +15,9 @@ domain_size: 5
 domain_varying: true
 
 # Learning rate and cosine annealing scheduler
-gradient_clip: 10
+gradient_clip: null
+inner_learning_rate: 1e-4
+inner_steps: 5
 learning_rate: 1e-3
 
 # KL loss betas

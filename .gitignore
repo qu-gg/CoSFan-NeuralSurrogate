@@ -163,3 +163,5 @@ cython_debug/
 experiments/
 data/
 CoSFan.zip
+*.svg
+*.png

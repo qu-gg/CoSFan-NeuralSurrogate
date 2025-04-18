@@ -32,12 +32,22 @@ def get_model(name):
 
     # Feed-Forward Models
     if name == "feedforwardmask":
-        from models.FeedForwardMaskIn import FeedForward
+        from models.FeedForward import FeedForward
         return FeedForward
     
     if name == "feedforwardmask-stationary":
-        from models.FeedForwardMaskInStationary import FeedForward
+        from models.FeedForwardStationary import FeedForward
         return FeedForward
+
+    # MAML
+    if name == "maml":
+        from models.MAML import Maml
+        return Maml
+
+    # PNS non-meta 
+    if name == "pns":
+        from models.PNS import PNS
+        return PNS
 
     # Given no correct model type, raise error
     raise NotImplementedError("Model type {} not implemented.".format(name))

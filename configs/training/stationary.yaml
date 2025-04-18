@@ -2,7 +2,7 @@
 task_setting: stationary
 
 # Number of steps to update the model on in a task
-num_steps: 5000
+num_steps: 18000
 
 # How often to log training and validation metrics
 log_interval: 50

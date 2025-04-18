@@ -82,7 +82,7 @@ class FeedForward(LatentMetaDynamicsModel):
         eps = torch.randn_like(std)
         z_c =  mu_c + eps * std
         return z_c, mu_c, logvar_c
-
+    
     def time_modeling(self, T, z_0, z_c):
         # print(z_0.shape)
         N, V, C = z_0.shape

@@ -23,7 +23,7 @@ class ContinualEPDataset(Dataset):
         self.names = names
         
     def __len__(self):
-        return self.xs.shape[0] - self.args.domain_size
+        return self.xs.shape[0]
 
     def __getitem__(self, idx):
         # Get indices of context and query
@@ -38,12 +38,13 @@ class ContinualEPDataset(Dataset):
         
         label = self.labels[:, query_idx]
         name = self.names[query_idx]
+        scar = self.scars[query_idx]
 
         # Get the corresponding context set
         xs_spt = self.xs[context_idx, :]
         # ys_spt = self.ys[context_idx, :]
         ys_spt = self.labels[:, context_idx].permute(1, 0).contiguous()
-        return xs_qry, xs_spt, ys_qry, ys_spt, name, label
+        return xs_qry, xs_spt, ys_qry, ys_spt, name, label, scar
 
 
 class ContinualEPDataModule(pytorch_lightning.LightningDataModule):
@@ -78,7 +79,6 @@ class ContinualEPDataModule(pytorch_lightning.LightningDataModule):
         labels = torch.from_numpy(labels)
         names = torch.from_numpy(names)
         scar = torch.from_numpy(scar)
-        print(xs.shape, labels.shape)
 
         # Build dataset and corresponding Dataloader
         dataset = ContinualEPDataset(self.args, xs, ys, labels, scar, names)
@@ -302,7 +302,7 @@ class StationaryEPDataModule(pytorch_lightning.LightningDataModule):
     #     """ Getter function that builds and returns the validation dataloader """
     #     return self.make_loader("val", shuffle=False)
 
-    def test_dataloader(self, task_id, mode="train"):
+    def test_dataloader(self, task_id, mode="val"):
         """ Getter function that builds and returns the testing dataloader """
         return self.make_test_loader(task_id, mode)
 

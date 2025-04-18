@@ -1,5 +1,10 @@
 # What metrics to evaluate on
-metrics:
+train_metrics:
+  - mse
+  - tcc
+  - scc
+
+test_metrics:
   - mse
   - tcc
   - scc

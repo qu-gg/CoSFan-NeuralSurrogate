@@ -7,13 +7,20 @@ class Memory(nn.Module):
         self.args = args
 
         # Buffer of previous samples
-        self.buffer = dict()
+        self.buffer = {
+            'xs': [None for _ in range(args.memory_samples)],
+            'ys': None,
+            'names': None,
+            'scars': None
+        }
 
         # Buffer to hold any new samples that come in over a batch
         self.current_task_indices = None
         self.current_task_data = {
-            "images": None,
-            "labels": None
+            'xs': [None for _ in range(args.memory_samples)],
+            'ys': None,
+            'names': None,
+            'scars': None
         }
 
         # Number of examples seen
@@ -34,7 +41,7 @@ class Memory(nn.Module):
     def epoch_update(self, logger, task_id, dynamics_func=None):
         pass
 
-    def batch_update(self, images, labels, task_counter=None):
+    def batch_update(self, xs, ys, names, scars, task_counter=None):
         pass
 
     def get_batch(self):

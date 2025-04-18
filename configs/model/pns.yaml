@@ -1,0 +1,7 @@
+model: pns
+stochastic: true
+meta: false
+
+defaults:
+  - layers: maml
+  - hyperparameters: default

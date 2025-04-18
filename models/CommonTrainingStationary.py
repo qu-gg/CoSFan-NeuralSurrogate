@@ -64,7 +64,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         optim = torch.optim.AdamW(list(self.parameters()), lr=self.args.learning_rate)
 
         # Define step optimizer
-        optim_scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=1000, gamma=0.75)
+        optim_scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=2000, gamma=0.75)
         scheduler = {
             'scheduler': optim_scheduler,
             'interval': 'step'

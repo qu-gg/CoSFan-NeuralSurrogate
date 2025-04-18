@@ -113,11 +113,12 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
     def get_step_outputs(self, batch, train=True):
         """ Handles processing a batch and getting model predictions """
         # Get batch
-        x, x_domain, y, y_domain, names, labels = batch 
+        x, x_domain, y, y_domain, names, labels, scars = batch 
         # print(f"X pre: {x.shape} | Domain pre: {x_domain.shape}| Name pre: {names.shape}")
        
         # Changeable k_shot
-        if train is True and self.args.domain_varying is True:
+        k_shot = self.args.domain_size
+        if self.args.domain_varying is True:
             k_shot = np.random.randint(1, x_domain.shape[1])
             x_domain = x_domain[:, :k_shot]
             y_domain = y_domain[:, :k_shot]
@@ -130,7 +131,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         
         # Get memory batch, added only for training
         if self.memory is not None and train is True and self.task_counter > 0:
-            memory_x, memory_x_domains, memory_y, memory_y_domains, memory_names = self.memory.get_batch()
+            memory_x, memory_x_domains, memory_y, memory_y_domains, memory_names, memory_scars = self.memory.get_batch(k_shot)
             
             # Turn into a list of individual tensors
             x_list = [xi for xi in x[:max(self.args.batch_size // 2, 2)]] + memory_x
@@ -138,20 +139,16 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
             y_list = [yi for yi in y[:max(self.args.batch_size // 2, 2)]] + memory_y
             y_domain_list = [yi for yi in y_domain[:max(self.args.batch_size // 2, 2)]] + memory_y_domains
             names = torch.vstack((names[:max(self.args.batch_size // 2, 2)], memory_names))
-            # print(f"Name: {names}")
 
         # Get subset of x and xD based on names
         likelihood_total, model_specific_loss_total = None, None
         x_stack, x_domain_stack, preds_stack, zt_stack = [], [], [], []
         for name in torch.unique(names):
             indices = torch.where(names == name)[0]
-            # print(torch.unique(names), name, indices, name)
-
             sub_x = torch.stack([x_list[i] for i in indices])
             sub_xD = torch.stack([x_domain_list[i] for i in indices])
             sub_y = torch.stack([y_list[i] for i in indices])
             sub_yD = torch.stack([y_domain_list[i] for i in indices])
-            # print(sub_x.shape, sub_xD.shape, sub_y.shape, sub_yD.shape)
 
             # Reconstruct nodes based on subset size
             for data_idx, data_name in enumerate(self.args.data_names):
@@ -159,12 +156,8 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
 
             # Get predictions
             preds, zt = self(sub_x, sub_xD, sub_y, sub_yD, int(name))
-            # print(preds.shape, zt.shape)
 
-            # Reconstruction loss for the sequence and z0
-            # likelihoods = self.reconstruction_loss(preds, sub_x)
-            # likelihood = likelihoods.sum() / (sub_x.shape[-1] - 1)
-            
+            # Reconstruction loss for the sequence and z0 
             nll_raw = self.reconstruction_loss(preds, sub_x)
             nll_0 = nll_raw[:, :, 0].sum()
             nll_r = nll_raw[:, :, 1:].sum() / (sub_x.shape[-1] - 1)
@@ -188,24 +181,18 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         # Average loss
         likelihood_total /= x.shape[0]
 
+        # Update memory with current batch
+        if self.memory is not None and train is True:
+            self.memory.batch_update(x[:self.args.batch_size // 2], y[:self.args.batch_size // 2], names[:self.args.batch_size // 2], scars[:self.args.batch_size // 2], self.task_counter + 1)
+
         # Pad to longest vertice length
         max_x_vertice = max([sub_x.shape[1] for sub_x in x_stack])
-        # max_z_vertice = max([sub_z.shape[1] for sub_z in zt_stack])
-        # print(f"Pre pad: {[sub_x.shape[1] for sub_x in x_stack]} {[sub_z.shape[1] for sub_z in zt_stack]}")
-        
         for idx, (xq, dq, pq, zq) in enumerate(zip(x_stack, x_domain_stack, preds_stack, zt_stack)):
-            # print(max_x_vertice - xq.shape[1])
-            # print(max_z_vertice - zq.shape[1])
             if max_x_vertice - xq.shape[1] > 0:
                 x_stack[idx] = torch.nn.functional.pad(xq, pad=[0, 0, 0, max_x_vertice - xq.shape[1], 0, 0], mode='constant', value=0)       
                 x_domain_stack[idx] = torch.nn.functional.pad(dq, pad=[0, 0, 0, max_x_vertice - xq.shape[1], 0, 0, 0, 0], mode='constant', value=0)
                 preds_stack[idx] = torch.nn.functional.pad(pq, pad=[0, 0, 0, max_x_vertice - xq.shape[1], 0, 0], mode='constant', value=0)
             
-            # if max_z_vertice - zq.shape[1] > 0:
-                # zt_stack[idx] = torch.nn.functional.pad(zq, pad=[0, 0, 0, 0, 0, max_z_vertice - zq.shape[1], 0, 0], mode='constant', value=0)
-
-        # print(f"Post pad: {[sub_x.shape[1] for sub_x in x_stack]} {[sub_z.shape[1] for sub_z in zt_stack]}")
-
         # Stack out
         x_stack = torch.vstack(x_stack)
         x_domain_stack = torch.vstack(x_domain_stack)
@@ -216,13 +203,11 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
     def get_metrics(self, outputs, setting):
         """ Takes the dictionary of saved batch metrics, stacks them, and gets outputs to log in the Tensorboard """
         # Pad to longest vertice length
-        # print(f'Pre pad: {[out["signals"].shape[1] for out in outputs]}')
         max_x_vertice = max([out["signals"].shape[1] for out in outputs])
         for idx, out in enumerate(outputs):
             if max_x_vertice - outputs[idx]["signals"].shape[1] > 0:
                 outputs[idx]["signals"] = torch.nn.functional.pad(outputs[idx]["signals"], pad=[0, 0, 0, max_x_vertice - outputs[idx]["signals"].shape[1], 0, 0], mode='constant', value=0)       
                 outputs[idx]["preds"] = torch.nn.functional.pad(outputs[idx]["signals"], pad=[0, 0, 0, max_x_vertice - outputs[idx]["signals"].shape[1], 0, 0], mode='constant', value=0)       
-        # print(f'Post pad: {[out["signals"].shape[1] for out in outputs]}')
 
         # Convert outputs to Tensors and then Numpy arrays
         signals = torch.vstack([out["signals"] for out in outputs]).cpu().numpy()
@@ -230,7 +215,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
 
         # Iterate through each metric function and add to a dictionary
         out_metrics = {}
-        for met in self.args.metrics:
+        for met in self.args.train_metrics:
             metric_function = getattr(metrics, met)
             out_metrics[met] = metric_function(signals, preds, args=self.args, setting=setting)[1]
         return out_metrics
@@ -238,7 +223,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
     def training_step(self, batch, batch_idx):
         """ Training step, getting loss and returning it to optimizer """
         # Get outputs and calculate losses
-        signals, preds, _, names, likelihood, model_specific_loss  = self.get_step_outputs(batch)
+        signals, preds, _, names, likelihood, model_specific_loss  = self.get_step_outputs(batch, train=True)
 
         # Modulate total loss
         loss = likelihood + model_specific_loss
@@ -325,7 +310,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         # Iterate through each metric function and add to a dictionary
         print("\n=> getting metrics...")
         out_metrics = {}
-        for met in self.args.metrics:
+        for met in self.args.test_metrics:
             metric_function = getattr(metrics, met)
             metric_results, metric_mean, metric_std = metric_function(outputs["signals"], outputs["preds"], args=self.args, setting='test')
             out_metrics[f"{met}_mean"], out_metrics[f"{met}_std"] = float(metric_mean), float(metric_std)
@@ -337,5 +322,5 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
 
         # Save metrics to an easy excel conversion style
         with open(f"{output_path}/test_{self.args.dataset}_excel.txt", 'w') as f:
-            for metric in self.args.metrics:
+            for metric in self.args.test_metrics:
                 f.write(f"{out_metrics[f'{metric}_mean']:0.3f}({out_metrics[f'{metric}_std']:0.3f}),")

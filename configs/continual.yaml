@@ -30,3 +30,10 @@ checkpt: ""
 
 # Whether to save reconstructions to disk
 save_files: true
+
+# Whether we are training/testing and whether to regenerate metrics
+train: true
+generate: true
+
+# What version to save to, default None
+version: null
