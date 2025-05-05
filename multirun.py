@@ -6,13 +6,13 @@ models = [
     "model=feedforward-mask memory=task-aware",
     "model=feedforward-mask memory=naive",
     
-    "model=maml memory=exact-replay",
-    "model=maml memory=task-aware",
-    "model=maml memory=naive",
+    # "model=maml memory=exact-replay",
+    # "model=maml memory=task-aware",
+    # "model=maml memory=naive",
     
-    "model=pns memory=exact-replay",
-    "model=pns memory=task-aware",
-    "model=pns memory=naive",
+    # "model=pns memory=exact-replay",
+    # "model=pns memory=task-aware",
+    # "model=pns memory=naive",
 ]
 
 seeds = [

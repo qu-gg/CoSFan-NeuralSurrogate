@@ -342,15 +342,7 @@ def main(cfg: DictConfig):
             cfg.task_id = task_id
             trainer.test(model, datamodules[task_id].evaluate_train_dataloader(), ckpt_path=f"{task_logger.log_dir}/checkpoints/last.ckpt")
 
-            # Test on all previous tasks and current task, as well as one task forward
-            for prev_task_idx, prev_task_id in zip(range(idx + 1), cfg.task_ids[:idx + 1]):
-                cfg.split = f"{prev_task_idx}_train"
-                trainer.test(model, datamodules[prev_task_id].evaluate_train_dataloader(), ckpt_path=f"{task_logger.log_dir}/checkpoints/last.ckpt")
-                
-                cfg.split = f"{prev_task_idx}"
-                trainer.test(model, datamodules[prev_task_id], ckpt_path=f"{task_logger.log_dir}/checkpoints/last.ckpt")
-            
-            # Test on all previous tasks and current task, as well as one task forward
+            # Test on all tasks
             for prev_task_idx, prev_task_id in enumerate(cfg.task_ids):
                 cfg.split = f"{prev_task_idx}_train"
                 trainer.test(model, datamodules[prev_task_id].evaluate_train_dataloader(), ckpt_path=f"{task_logger.log_dir}/checkpoints/last.ckpt")

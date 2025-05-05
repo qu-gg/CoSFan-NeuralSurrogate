@@ -27,6 +27,7 @@ class ContinualEPDataset(Dataset):
 
     def __getitem__(self, idx):
         # Get indices of context and query
+        # TODO: change to .choice
         indices = np.random.randint(0, self.xs.shape[0], 1 + self.args.domain_size)
         query_idx = indices[0]
         context_idx = indices[1:]
