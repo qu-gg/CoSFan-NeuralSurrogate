@@ -1,8 +1,8 @@
 dataset: synthetic 
-dataset_name: synthetic
+dataset_name: synthetic_small
 dataset_ver: scar_
 
-task_ids: [0, 1, 2, 3, 4, 5, 7, 10, 12, 13, 15, 16]
+task_ids: [4, 10, 12]
 test_task_ids: [4, 10, 12]
 data_names: ["AW", "DC", "EC"]
 signal_type: "egm"

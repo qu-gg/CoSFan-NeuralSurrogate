@@ -61,7 +61,7 @@ def scc(u, x, **kwargs):
     return res, np.mean(res), np.std(res)
 
 
-def dcc(u, x):
+def dcc(u, x, **kwargs):
     m, n, w = u.shape
     dice_cc = []
 
@@ -78,4 +78,4 @@ def dcc(u, x):
         dice_cc.append(2 * len(intersect) / float(len(set(u_scar_idx)) + len(set(x_scar_idx))))
 
     dice_cc = np.array(dice_cc)
-    return dice_cc
+    return dice_cc, np.mean(dice_cc), np.std(dice_cc)

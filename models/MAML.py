@@ -83,7 +83,7 @@ class Maml(LatentMetaDynamicsModel):
         self.bg3 = dict()
         self.bg4 = dict()
 
-    def construct_nodes(self, data_idx, heart_name, data_path, batch_size, device, load_torso, load_physics, graph_method):
+    def construct_nodes(self, data_idx, heart_name, data_path, batch_size, k_shot, device, load_torso, load_physics, graph_method):
         params = get_params(data_path, heart_name, device, batch_size, load_torso, load_physics, graph_method)        
         self.bg[data_idx] = params["bg"]
         self.bg1[data_idx] = params["bg1"]
@@ -105,25 +105,25 @@ class Maml(LatentMetaDynamicsModel):
         return z_0
 
     def time_modeling(self, T, z_0):
-            # print(z_0.shape)
-            N, V, C = z_0.shape
+        # print(z_0.shape)
+        N, V, C = z_0.shape
 
 
-            z_prev = z_0
-            z = []
-            for i in range(1, T):
-                z_t = self.propagation(T, z_prev)
-                z_prev = z_t
-                z_t = z_t.view(1, N, V, C)
-                z.append(z_t)
-            z = torch.cat(z, dim=0)
-            z_0 = z_0.view(1, N, V, C)
-            z = torch.cat([z_0, z], dim=0)
-            
-            # elif self.trans_model in ['ODE',]:
-                # z = self.propagation(T, z_0, z_c)
-            z = z.permute(1, 2, 3, 0).contiguous()
-            return z
+        z_prev = z_0
+        z = []
+        for i in range(1, T):
+            z_t = self.propagation(T, z_prev)
+            z_prev = z_t
+            z_t = z_t.view(1, N, V, C)
+            z.append(z_t)
+        z = torch.cat(z, dim=0)
+        z_0 = z_0.view(1, N, V, C)
+        z = torch.cat([z_0, z], dim=0)
+        
+        # elif self.trans_model in ['ODE',]:
+            # z = self.propagation(T, z_0, z_c)
+        z = z.permute(1, 2, 3, 0).contiguous()
+        return z
 
     def forward(self, x, xD, y, yD, name):
         N, V, T = x.shape
@@ -139,6 +139,37 @@ class Maml(LatentMetaDynamicsModel):
         # Decode
         x_ = self.decoder(z, name)   
         return x_, z
+
+    def single_fast_weight(self, x, xD, y, yD, name):
+        optim = torch.optim.SGD(list(self.parameters()), lr=self.args.learning_rate)
+        
+        """ Inner step """
+        for _ in range(self.args.inner_steps):
+            pred, _ = self(x, xD, y, yD, int(name))
+            
+            # Likelihood
+            nll_raw = self.reconstruction_loss(pred, x)
+            nll_0 = nll_raw[:, :, 0].sum()
+            nll_r = nll_raw[:, :, 1:].sum() / (x.shape[-1] - 1)
+            loss = x.shape[-1] * (nll_0 * 0.1 + nll_r)
+            
+            # Get the loss terms from the specific latent dynamics loss
+            model_specific_loss = self.model_specific_loss(x, xD, pred)
+            likelihood = loss + model_specific_loss                
+
+            # Get loss and gradients
+            optim.zero_grad(set_to_none=True)
+            likelihood.backward()
+            optim.step()
+
+            # Perform SGD over the dynamics function parameters
+            for param in self.propagation.parameters():
+                if param.grad is not None:
+                    # Note we clip gradients here
+                    grad = torch.clamp(param.grad.data, min=-5, max=5)
+
+                    # SGD update
+                    param.data -= self.args.inner_learning_rate * grad
 
     def fast_weights(self, x_list, x_domain_list, y_list, y_domain_list, names, scars):
         # Save a copy of the state dict before the updates
@@ -161,7 +192,7 @@ class Maml(LatentMetaDynamicsModel):
 
             # Reconstruct nodes based on subset size
             for data_idx, data_name in enumerate(self.args.data_names):
-                self.construct_nodes(data_idx, data_name, 'data/ep/', sub_x.shape[0], self.args.devices[0], self.args.load_torso, self.args.load_physics, self.args.graph_method)
+                self.construct_nodes(data_idx, data_name, 'data/ep/', sub_x.shape[0], None, self.args.devices[0], self.args.load_torso, self.args.load_physics, self.args.graph_method)
 
             """ Inner step """
             for _ in range(self.args.inner_steps):

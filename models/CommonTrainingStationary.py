@@ -39,7 +39,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         # Accumulation of outputs over the logging interval
         self.outputs = list()
 
-    def construct_nodes(self, data_idx, heart_name, data_path, batch_size, device, load_torso, load_physics, graph_method):
+    def construct_nodes(self, data_idx, heart_name, data_path, batch_size, k_shot, device, load_torso, load_physics, graph_method):
         """ Handles setting up the encoder/decoder node sizes for each heart mesh """
         params = get_params(data_path, heart_name, device, batch_size, load_torso, load_physics, graph_method)        
         self.domain.setup_nodes(data_idx, params)
@@ -64,7 +64,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         optim = torch.optim.AdamW(list(self.parameters()), lr=self.args.learning_rate)
 
         # Define step optimizer
-        optim_scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=2000, gamma=0.75)
+        optim_scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=2000 / 5, gamma=0.75)
         scheduler = {
             'scheduler': optim_scheduler,
             'interval': 'step'
@@ -85,13 +85,16 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         # Get batch
         x, x_domain, y, y_domain, names, labels = batch 
         
+        # Set up parameters for each patient
+        for data_idx, data_name in enumerate(self.args.data_names):
+            self.construct_nodes(data_idx, data_name, 'data/ep/', 1, x_domain.shape[1], self.args.devices[0], self.args.load_torso, self.args.load_physics, self.args.graph_method)
+
         # Changeable k_shot
-        if train is True and self.args.domain_varying is True:
+        k_shot = self.args.domain_size
+        if self.args.domain_varying is True and train is True:
             k_shot = np.random.randint(1, x_domain.shape[1])
             x_domain = x_domain[:, :k_shot]
             y_domain = y_domain[:, :k_shot]
-
-        print(f"X pre: {x.shape} | Domain pre: {x_domain.shape}| Name pre: {names.shape} {names[0]}")
 
         # Get predictions
         preds, zt = self(x, x_domain, y, y_domain, int(names[0]))
@@ -109,27 +112,27 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
     def get_metrics(self, outputs, setting):
         """ Takes the dictionary of saved batch metrics, stacks them, and gets outputs to log in the Tensorboard """
         # Pad to longest vertice length
-        print(f'Pre pad: {[out["signals"].shape[1] for out in outputs]}')
         max_x_vertice = max([out["signals"].shape[1] for out in outputs])
         for idx, out in enumerate(outputs):
             if max_x_vertice - outputs[idx]["signals"].shape[1] > 0:
                 outputs[idx]["signals"] = torch.nn.functional.pad(outputs[idx]["signals"], pad=[0, 0, 0, max_x_vertice - outputs[idx]["signals"].shape[1], 0, 0], mode='constant', value=0)       
                 outputs[idx]["preds"] = torch.nn.functional.pad(outputs[idx]["signals"], pad=[0, 0, 0, max_x_vertice - outputs[idx]["signals"].shape[1], 0, 0], mode='constant', value=0)       
-        print(f'Post pad: {[out["signals"].shape[1] for out in outputs]}')
-        
+
         # Convert outputs to Tensors and then Numpy arrays
         signals = torch.vstack([out["signals"] for out in outputs]).cpu().numpy()
         preds = torch.vstack([out["preds"] for out in outputs]).cpu().numpy()
 
         # Iterate through each metric function and add to a dictionary
         out_metrics = {}
-        for met in self.args.metrics:
+        for met in self.args.train_metrics:
             metric_function = getattr(metrics, met)
             out_metrics[met] = metric_function(signals, preds, args=self.args, setting=setting)[1]
         return out_metrics
 
     def training_step(self, batch, batch_idx):
-        """ Training step, getting loss and returning it to optimizer """        
+        """ Training step, getting loss and returning it to optimizer """  
+        self.trainer.train_dataloader.dataset.datasets.sample_new_task()
+              
         # Get outputs and calculate losses
         signals, preds, _, names, likelihood, model_specific_loss  = self.get_step_outputs(batch)
 
@@ -216,7 +219,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         # Iterate through each metric function and add to a dictionary
         print("\n=> getting metrics...")
         out_metrics = {}
-        for met in self.args.metrics:
+        for met in self.args.test_metrics:
             metric_function = getattr(metrics, met)
             metric_results, metric_mean, metric_std = metric_function(outputs["signals"], outputs["preds"], args=self.args, setting='test')
             out_metrics[f"{met}_mean"], out_metrics[f"{met}_std"] = float(metric_mean), float(metric_std)
@@ -228,5 +231,5 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
 
         # Save metrics to an easy excel conversion style
         with open(f"{output_path}/test_{self.args.dataset}_excel.txt", 'w') as f:
-            for metric in self.args.metrics:
+            for metric in self.args.test_metrics:
                 f.write(f"{out_metrics[f'{metric}_mean']:0.3f}({out_metrics[f'{metric}_std']:0.3f}),")

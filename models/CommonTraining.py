@@ -49,7 +49,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         # Accumulation of outputs over the logging interval
         self.outputs = list()
 
-    def construct_nodes(self, data_idx, heart_name, data_path, batch_size, device, load_torso, load_physics, graph_method):
+    def construct_nodes(self, data_idx, heart_name, data_path, batch_size, k_shot, device, load_torso, load_physics, graph_method):
         """ Handles setting up the encoder/decoder node sizes for each heart mesh """
         params = get_params(data_path, heart_name, device, batch_size, load_torso, load_physics, graph_method)        
         self.domain.setup_nodes(data_idx, params)
@@ -78,7 +78,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         optim = torch.optim.AdamW(list(self.parameters()), lr=self.args.learning_rate)
 
         # Define step optimizer
-        optim_scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=500, gamma=0.75)
+        optim_scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=250, gamma=0.75)
         scheduler = {
             'scheduler': optim_scheduler,
             'interval': 'step'
@@ -114,11 +114,10 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
         """ Handles processing a batch and getting model predictions """
         # Get batch
         x, x_domain, y, y_domain, names, labels, scars = batch 
-        # print(f"X pre: {x.shape} | Domain pre: {x_domain.shape}| Name pre: {names.shape}")
        
         # Changeable k_shot
-        k_shot = self.args.domain_size
-        if self.args.domain_varying is True:
+        k_shot = min(self.args.domain_size, x_domain.shape[1])
+        if self.args.domain_varying is True and train is True:
             k_shot = np.random.randint(1, x_domain.shape[1])
             x_domain = x_domain[:, :k_shot]
             y_domain = y_domain[:, :k_shot]
@@ -152,7 +151,7 @@ class LatentMetaDynamicsModel(pytorch_lightning.LightningModule):
 
             # Reconstruct nodes based on subset size
             for data_idx, data_name in enumerate(self.args.data_names):
-                self.construct_nodes(data_idx, data_name, 'data/ep/', sub_x.shape[0], self.args.devices[0], self.args.load_torso, self.args.load_physics, self.args.graph_method)
+                self.construct_nodes(data_idx, data_name, 'data/ep/', sub_x.shape[0], k_shot, self.args.devices[0], self.args.load_torso, self.args.load_physics, self.args.graph_method)
 
             # Get predictions
             preds, zt = self(sub_x, sub_xD, sub_y, sub_yD, int(name))

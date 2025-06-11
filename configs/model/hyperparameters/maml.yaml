@@ -4,8 +4,9 @@ train_metrics:
 
 test_metrics:
   - mse
-  - tcc
+  - mae
   - scc
+  - dcc
 
 # Batch size
 batch_size: 10

@@ -1,8 +1,8 @@
 defaults:
   - _self_
   - model: feedforward-mask
-  - dataset: continual
-  - training: continual
+  - dataset: pretrain
+  - training: pretrain
   - memory: exact-replay
 
 hydra:
@@ -22,9 +22,10 @@ seed: 1111
 exptag: ""
 
 gradual_percent: 1.0
+limited_samples: 10
 
 # Experiment folder naming
-exptype: ${model.model}_${dataset.dataset_name}_${training.task_setting}_${memory.memory_name}_${seed}_${gradual_percent}
+exptype: pretrain_${model.model}_${dataset.dataset}_${training.task_setting}_${memory.memory_name}_${seed}_${limited_samples}samples
 model_path: ""
 checkpt: ""
 
@@ -37,3 +38,4 @@ generate: true
 
 # What version to save to, default None
 version: null
+

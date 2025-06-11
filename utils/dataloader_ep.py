@@ -27,8 +27,7 @@ class ContinualEPDataset(Dataset):
 
     def __getitem__(self, idx):
         # Get indices of context and query
-        # TODO: change to .choice
-        indices = np.random.randint(0, self.xs.shape[0], 1 + self.args.domain_size)
+        indices = np.random.choice([i for i in range(self.xs.shape[0])], min(1 + self.args.domain_size, self.xs.shape[0]), replace=False)
         query_idx = indices[0]
         context_idx = indices[1:]
         
@@ -296,8 +295,8 @@ class StationaryEPDataModule(pytorch_lightning.LightningDataModule):
         """ Getter function that builds and returns the training dataloader """
         return self.make_loader("train", evaluation=False)
 
-    def evaluate_train_dataloader(self):
-        return self.make_loader("train", shuffle=False)
+    def evaluate_train_dataloader(self, task_id):
+        return self.make_test_loader(task_id, "train")
 
     # def val_dataloader(self):
     #     """ Getter function that builds and returns the validation dataloader """

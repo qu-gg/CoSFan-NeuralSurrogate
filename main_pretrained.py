@@ -1,9 +1,8 @@
 """
-@file main_continual.py
+@file meta_pretrained.py
 
-Main entrypoint for training the CL methods on a random sequence of tasks.
+Main entrypoint for training the CL methods based on a pre-trained meta-model
 """
-import os
 import json
 import torch
 import hydra
@@ -275,7 +274,7 @@ def plot_tsne(cfg, logger, mode=""):
     plt.close()
     
 
-@hydra.main(version_base="1.3", config_path="configs", config_name="continual")
+@hydra.main(version_base="1.3", config_path="configs", config_name="pretrain")
 def main(cfg: DictConfig):
     # Set a consistent seed over the full set for consistent analysis
     pytorch_lightning.seed_everything(cfg.seed, workers=True)
@@ -341,8 +340,8 @@ def main(cfg: DictConfig):
     trainer = pytorch_lightning.Trainer(
         accelerator=cfg.accelerator,
         devices=cfg.devices,
-        max_epochs=0,
-        max_steps=0,
+        max_epochs=1,
+        max_steps=18000 * 3,
         gradient_clip_val=cfg.gradient_clip,
         # val_check_interval=cfg.val_log_interval,
         val_check_interval=None,
@@ -374,16 +373,15 @@ def main(cfg: DictConfig):
 
         # Training the model
         if cfg.train is True:
-            trainer.fit(model, datamodules[task_id])
+            if idx == 0:
+                trainer.fit(model, datamodules[task_id], ckpt_path="experiments/feedforwardmask-stationary_synthetic_small_stationary_naive_1111_1.0/feedforwardmask-stationary/version_3/checkpoints/last.ckpt")
+            else:
+                trainer.fit(model, datamodules[task_id], ckpt_path=f"{logger.log_dir}/task_{idx - 1}/checkpoints/last.ckpt")
+                
             if model.memory is not None:
                 model.memory.update_logger(task_logger)
                 model.memory.save_reservoir()
                 
-        # If we're just testing but its a MAML model, we have to initialize first
-        elif cfg.train is not True and cfg.generate is True and cfg.model == "maml":
-            trainer.fit_loop.max_steps = 1
-            trainer.fit(model, datamodules[task_id])
-
         # Test on the training set
         if cfg.generate is True:
             cfg.split = "train"
@@ -420,9 +418,9 @@ def main(cfg: DictConfig):
     # Do generalization tests
     for task_id in cfg.test_task_ids:
         cfg.split = f"generalization_{task_id}"
-        trainer.test(model, ContinualEPDataModule(cfg, [task_id]).evaluate_train_dataloader(), ckpt_path=f"{logger.log_dir}/task_{idx}/checkpoints/last.ckpt")
+        trainer.test(model, ContinualEPDataModule(cfg, [task_id]).evaluate_train_dataloader(), ckpt_path=f"{logger.log_dir}/task_2/checkpoints/last.ckpt")
 
-    consolidate_generalization_metrics(f"{logger.log_dir}/task_8/")
+    consolidate_generalization_metrics(f"{logger.log_dir}/task_2/")
     
     # Get tSNE over embeddings
     plot_tsne(cfg, logger, mode="")

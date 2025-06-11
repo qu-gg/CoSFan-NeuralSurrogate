@@ -79,7 +79,7 @@ class PNS(LatentMetaDynamicsModel):
         self.bg3 = dict()
         self.bg4 = dict()
 
-    def construct_nodes(self, data_idx, heart_name, data_path, batch_size, device, load_torso, load_physics, graph_method):
+    def construct_nodes(self, data_idx, heart_name, data_path, batch_size, k_shot, device, load_torso, load_physics, graph_method):
         params = get_params(data_path, heart_name, device, batch_size, load_torso, load_physics, graph_method)        
         self.bg[data_idx] = params["bg"]
         self.bg1[data_idx] = params["bg1"]

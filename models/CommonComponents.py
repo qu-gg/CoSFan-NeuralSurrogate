@@ -62,11 +62,13 @@ class Spatial_Block(nn.Module):
                  norm=True,
                  root_weight=True,
                  bias=True,
-                 sample_rate=None):
+                 sample_rate=None,
+                 last_layer=False):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.sample_rate = sample_rate
+        self.last_layer = last_layer
 
         self.glayer = SplineConv(in_channels=in_channels, out_channels=out_channels, dim=dim, kernel_size=kernel_size[0])
 
@@ -94,7 +96,9 @@ class Spatial_Block(nn.Module):
         x = x.permute(1, 3, 0, 2).contiguous()
 
         x = x + res
-        x = F.elu(x, inplace=True)
+        
+        if self.last_layer is False:
+            x = F.elu(x, inplace=True)
         x = x.permute(0, 3, 1, 2).contiguous()
 
         return x

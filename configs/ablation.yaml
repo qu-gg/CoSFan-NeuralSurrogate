@@ -24,7 +24,7 @@ exptag: ""
 gradual_percent: 1.0
 
 # Experiment folder naming
-exptype: ${model.model}_${dataset.dataset_name}_${training.task_setting}_${memory.memory_name}_${seed}_${gradual_percent}
+exptype: ${model.model}_${dataset.dataset}_${training.task_setting}_${memory.memory_name}_${seed}_${gradual_percent}
 model_path: ""
 checkpt: ""
 

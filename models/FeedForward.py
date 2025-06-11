@@ -37,17 +37,19 @@ class FeedForward(LatentMetaDynamicsModel):
         self.bg3 = dict()
         self.bg4 = dict()
 
-    def construct_nodes(self, data_idx, heart_name, data_path, batch_size, device, load_torso, load_physics, graph_method):
+    def construct_nodes(self, data_idx, heart_name, data_path, batch_size, k_shot, device, load_torso, load_physics, graph_method):
         params = get_params(data_path, heart_name, device, batch_size, load_torso, load_physics, graph_method)        
+        self.condition_encoder.setup_nodes(data_idx, params)
+        self.decoder.setup_nodes(data_idx, params)
+        
+        params = get_params(data_path, heart_name, device, batch_size * k_shot, load_torso, load_physics, graph_method)       
+        self.signal_encoder.setup_nodes(data_idx, params)
+        
         self.bg[data_idx] = params["bg"]
         self.bg1[data_idx] = params["bg1"]
         self.bg2[data_idx] = params["bg2"]
         self.bg3[data_idx] = params["bg3"]
         self.bg4[data_idx] = params["bg4"]
-        
-        self.signal_encoder.setup_nodes(data_idx, params)
-        self.condition_encoder.setup_nodes(data_idx, params)
-        self.decoder.setup_nodes(data_idx, params)
 
     def latent_initial(self, y, N, V, heart_name):
         y = one_hot_label(y[:, 2] - 1, N, V, 1, self.args.devices[0])
@@ -58,30 +60,47 @@ class FeedForward(LatentMetaDynamicsModel):
         
         return z_0
 
-    def latent_domain(self, D_x, D_y, K, heart_name):
+    def latent_domain(self, D_x, D_y, heart_name):
         edge_index, edge_attr = self.bg4[heart_name].edge_index, self.bg4[heart_name].edge_attr
-
-        N, _, V, T = D_x.shape
-        D_z_c = []
-        for i in range(K):
-            D_xi = D_x[:, i, :, :].view(N, V, T)
-            D_yi = D_y[:, i, :]
-            D_yi = one_hot_label(D_yi[:, 2] - 1, N, V, T, self.args.devices[0])
-            z_i = self.signal_encoder(D_xi, heart_name, D_yi)
-            z_c_i = self.domain_seq(z_i, edge_index, edge_attr)
-            D_z_c.append(self.domain(z_c_i))
-
-        z_c = sum(D_z_c) / len(D_z_c)
-        mu_c = self.mu_c(z_c)
-        logvar_c = self.var_c(z_c)
-        mu_c = torch.clamp(mu_c, min=-100, max=85)
-        logvar_c = torch.clamp(logvar_c, min=-100, max=85)
+        print(edge_index.shape, edge_attr.shape)
+        N, K, V, T = D_x.shape
+        
+        # Reshape D_x to process all K samples at once while maintaining batch structure
+        # From [N, K, V, T] to [N*K, V, T]
+        D_x = D_x.reshape(N*K, V, T)
+        
+        # Similarly reshape D_y and create one-hot labels
+        D_y = D_y.reshape(N*K, -1)
+        D_y = one_hot_label(D_y[:, 2] - 1, N*K, V, T, self.args.devices[0])
+        
+        # Process all samples through signal encoder at once
+        z = self.signal_encoder(D_x, heart_name, D_y)
+        z_c = self.domain_seq(z, edge_index, edge_attr)
+        z_c = self.domain(z_c)
+        
+        # Reshape to the base dimensions
+        z_c = z_c.reshape(N, K, z_c.shape[1], z_c.shape[2])
+        
+        # Derive just context-samples embeddings
+        z_c_context = torch.mean(z_c[:, :-1], dim=1)  # Average over K dimension
+        mu_c_context = self.mu_c(z_c_context)
+        logvar_c_context = self.var_c(z_c_context)
+        mu_c_context = torch.clamp(mu_c_context, min=-100, max=85)
+        logvar_c_context = torch.clamp(logvar_c_context, min=-100, max=85)
 
         # Reparameterization
-        std = torch.exp(0.5 * logvar_c)
+        std = torch.exp(0.5 * logvar_c_context)
         eps = torch.randn_like(std)
-        z_c =  mu_c + eps * std
-        return z_c, mu_c, logvar_c
+        z_c_context = mu_c_context + eps * std
+        
+        # Derive the KL based distributional parameters - that includes GT query samples 
+        z_c_gt = torch.mean(z_c, dim=1)  # Average over K dimension
+        mu_c_gt = self.mu_c(z_c_gt)
+        logvar_c_gt = self.var_c(z_c_gt)
+        self.mean_t = torch.clamp(mu_c_gt, min=-100, max=85)
+        self.logvar_t = torch.clamp(logvar_c_gt, min=-100, max=85)
+        
+        return z_c_context, mu_c_context, logvar_c_context
     
     def time_modeling(self, T, z_0, z_c):
         # print(z_0.shape)
@@ -112,21 +131,20 @@ class FeedForward(LatentMetaDynamicsModel):
         if z0.dim() == 2:
             z0 = z0.unsqueeze(0)
         
+        # Prepare full context set including current sample
+        x_expanded = x.view(N, 1, V, T)
+        y_expanded = y.view(N, 1, -1)
+        xD = torch.cat([xD, x_expanded], dim=1)
+        yD = torch.cat([yD, y_expanded], dim=1)
+        
         # Domain encoding
-        self.embeddings, self.mean_c, self.logvar_c = self.latent_domain(xD, yD, xD.shape[1], name)
+        self.embeddings, self.mean_c, self.logvar_c = self.latent_domain(xD, yD, name)
 
         # Latent propagation
         z = self.time_modeling(T, z0, self.embeddings)
         
         # Decode
         x_ = self.decoder(z, name)    
-        
-        # KL p(c | D u x)
-        x = x.view(N, 1, -1, T)
-        y = y.view(N, 1, -1)
-        D_x_cat = torch.cat([xD, x], dim=1)
-        D_y_cat = torch.cat([yD, y], dim=1)
-        _, self.mean_t, self.logvar_t = self.latent_domain(D_x_cat, D_y_cat, xD.shape[1], name)
         return x_, z
     
     def kl_div(self, mu1, var1, mu2=None, var2=None):

@@ -9,7 +9,7 @@ test_metrics:
   - dcc
 
 # Batch size
-batch_size: 10
+batch_size: 3
 domain_size: 5
 domain_varying: true
 

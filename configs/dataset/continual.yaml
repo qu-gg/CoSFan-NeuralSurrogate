@@ -1,7 +1,9 @@
 dataset: synthetic 
+dataset_name: synthetic 
 dataset_ver: scar_
 
 task_ids: [0, 1, 2, 3, 5, 7, 13, 15, 16]
+test_task_ids: [4, 10, 12]
 data_names: ["AW", "DC", "EC"]
 signal_type: "egm"
 seq_len: 101

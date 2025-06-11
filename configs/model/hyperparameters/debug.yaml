@@ -1,13 +1,12 @@
 # What metrics to evaluate on
 train_metrics:
   - mse
-  - tcc
-  - scc
 
 test_metrics:
   - mse
-  - tcc
+  - mae
   - scc
+  - dcc
 
 # Batch size
 batch_size: 2
